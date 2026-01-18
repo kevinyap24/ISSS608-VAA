@@ -431,6 +431,7 @@ patchwork & theme_economist() & theme(plot.title = element_text(size = 8))
 ```
 
 ## The code
+
 ```{r}
 #| fig-show: hide
 patchwork <- (p1 / p2) | p3
@@ -439,6 +440,7 @@ patchwork & theme_economist()
 :::
 
 ## 2.6 Reference
+
 -   [Patchwork R package goes nerd viral](https://www.littlemissdata.com/blog/patchwork)
 -   [ggrepel](https://ggrepel.slowkow.com/)
 -   [ggthemes](https://ggplot2.tidyverse.org/reference/ggtheme.html)
