@@ -5,7 +5,7 @@ website:
   title: "ISSS608-VAA"
   navbar:
     left:
-      - text: "Hands-on Excercise"
+      - text: "Hands-on Exercise"
         menu: 
           - text: "Hands-on Exercise 1"
             href: "Hands-on_Ex/Hands-on_Ex01/Hands-on_Ex01.html"
