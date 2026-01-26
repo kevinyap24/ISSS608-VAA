@@ -275,6 +275,7 @@ In this sub-section, you will learn how to create an animated bubble plot by usi
 
 ```{r}
 #| echo: false
+#| warning: false
 bp <- globalPop %>%
   plot_ly(x = ~Old, 
           y = ~Young, 
@@ -294,6 +295,7 @@ bp
 ## The code chunk
 
 ```{r}
+#| warning: false
 bp <- globalPop %>%
   plot_ly(x = ~Old, 
           y = ~Young, 
