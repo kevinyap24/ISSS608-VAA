@@ -1,0 +1,718 @@
+---
+title: "Take-home_Ex01"
+date: "February 6, 2026"
+date-modified: "`r Sys.Date()`"
+---
+
+# Take-home Exercise 1: Factors Affecting Learning Outcomes of Vietnam National University Hanoi (University of Education Students)
+
+## Overview
+
+### Background
+
+A survey on learning outcomes of University of Education Students of Vietnam National University (VNU) Hanoi was conducted from March to June 2023. The total initial sample surveyed comprised of students who were still studying and had graduated, amounted to 2238 respondents. However, after filtering out for incomplete and invalid responses, the total sample is at 2170, which is the number of sample being used in this exercise.
+
+### The Data
+
+The dataset used in this exercise comes from a questionnaire which can be obtained through **Mendeley Data** ([Dataset about VNU Students](https://data.mendeley.com/datasets/23ppcdbmhc/1)), which consists of the dataset itself and a codebook.
+
+### The Objective
+
+The objective of this exercise is to use raw survey data to perform Exploratory Data Analysis (EDA) and transform the dataset into insights by identifying meaningful patterns, trends, and relationships. The data is to be processed using **tidyverse** packages and visualisation is to be prepared using **ggplot2** and its extensions.
+
+## Getting Started
+
+### Load Packages
+
+R packages used in this exercise are:
+
+-   **readxl**: used to import data from Excel files (`.xls` or `.xlsx`) into R.
+
+-   **tidyverse**:a collection of packages used for data cleaning, transformation, and visualisation.
+
+-   **knitr**: used for dynamic report generation.
+
+-   **corrplot**: used to create correlation matrix.
+
+-   **ggstatplot**: extension of `ggplot2` that creates graphic...
+
+-   **ggridges**: used to create ridgeline plots.
+
+-   **patchwork**: used to combine multiple plots into one composite layout.
+
+```{r}
+#| warning: false
+pacman::p_load(readxl, tidyverse, knitr, corrplot, ggstatplot, ggridges, patchwork, scales)
+```
+
+### Importing Dataset
+
+The dataset (*vn_learning_outcome.xlsx*) used in this exercise is imported by writing the following code. It is important to load `readxl` package before importing the dataset as the format is in XLSX.
+
+```{r}
+df <- read_xlsx("data/vn_learning_outcome.xlsx")
+```
+
+### Glimpse of the Dataset
+
+By using `glimpse()` function of **dplyr** package, we can see that this dataset consists of 2170 observations and 22 columns. This function is able to show us the column names and type of the columns as well, which is important for us in order to be able to make sense of the data.
+
+```{r}
+glimpse(df)
+```
+
+### Check for Missing Values
+
+The `colsums()` function is a part of the **base** package to check for null values in dataset. Based on the following result, this dataset does not have null values.
+
+```{r}
+colSums(is.na(df))
+```
+
+### Recoding Values
+
+For ease of use, values for some of the columns are to be recoded as follows using the `mutate()` function of **dplyr** package.
+
+```{r}
+# Define order for all ordinal scales
+edu_levels    <- c("Primary school", "Secondary school", "High school", 
+                   "College school", "University/graduate education", "Other")
+
+time_levels   <- c("under 1 hour", "from 1 to lower 2 hours", 
+                   "from 2 to lower 3 hours", "from 3 to lower 4 hours", "over 4 hours")
+
+study_levels  <- c("under 2 hours", "from 2 to lower 4 hours", 
+                   "from 4 to lower 6 hours", "from 6 to lower 8 hours", "over 8 hour")
+
+gpa_levels    <- c("Under 2.0 – Poor", "From 2.0 to lower 2.5 – Average", 
+                   "From 2.5 to lower 3.2 – Fair", "From 3.2 to lower 3.6 – Good", "Over 3.6 – Excellent")
+
+likert_levels <- c("Not at all", "Little", "Moderate", "Quite", "Very")
+
+# Recode
+df1 <- df %>%
+  mutate(
+    # Binary/Nominal
+    Gender       = ifelse(Gender == 1, "Male", "Female"),
+    Policy_Stu   = ifelse(Policy_Stu == 1, "Yes", "No"),
+    Minority_Stu = ifelse(Minority_Stu == 1, "Yes", "No"),
+    Poor_Stu     = ifelse(Poor_Stu == 1, "Yes", "No"),
+    
+    Father_Occupation = case_when(
+      Father_Occupation == 1 ~ "Government employee",
+      Father_Occupation == 2 ~ "Self-employment",
+      Father_Occupation == 3 ~ "Freelance",
+      Father_Occupation == 4 ~ "Other",
+      Father_Occupation == 5 ~ "Not public"
+    ),
+    
+    Mother_Occupation = case_when(
+      Mother_Occupation == 1 ~ "Government employee",
+      Mother_Occupation == 2 ~ "Self-employment",
+      Mother_Occupation == 3 ~ "Freelance",
+      Mother_Occupation == 4 ~ "Other",
+      Mother_Occupation == 5 ~ "Not public"
+    ),
+
+    # Ordinal
+    across(c(Father_Edu, Mother_Edu), ~ factor(case_when(
+      . == 1 ~ "Primary school",
+      . == 2 ~ "Secondary school",
+      . == 3 ~ "High school",
+      . == 4 ~ "College school",
+      . == 5 ~ "University/graduate education",
+      . == 6 ~ "Other"
+    ), levels = edu_levels)),
+
+    Time_Friends = factor(case_when(
+      Time_Friends == 1 ~ "under 1 hour",
+      Time_Friends == 2 ~ "from 1 to lower 2 hours",
+      Time_Friends == 3 ~ "from 2 to lower 3 hours",
+      Time_Friends == 4 ~ "from 3 to lower 4 hours",
+      Time_Friends == 5 ~ "over 4 hours"
+    ), levels = time_levels),
+
+    Time_SocicalMedia = factor(case_when(
+      Time_SocicalMedia == 1 ~ "under 1 hour",
+      Time_SocicalMedia == 2 ~ "from 1 to lower 2 hours",
+      Time_SocicalMedia == 3 ~ "from 2 to lower 3 hours",
+      Time_SocicalMedia == 4 ~ "from 3 to lower 4 hours",
+      Time_SocicalMedia == 5 ~ "over 4 hours"
+    ), levels = time_levels),
+
+    Time_Studying = factor(case_when(
+      Time_Studying == 1 ~ "under 2 hours",
+      Time_Studying == 2 ~ "from 2 to lower 4 hours",
+      Time_Studying == 3 ~ "from 4 to lower 6 hours",
+      Time_Studying == 4 ~ "from 6 to lower 8 hours",
+      Time_Studying == 5 ~ "over 8 hour"
+    ), levels = study_levels),
+
+    # Create a  Label column for Bar Charts
+    GPA_Label = factor(case_when(
+      GPA == 1 ~ "Under 2.0 – Poor",
+      GPA == 2 ~ "From 2.0 to lower 2.5 – Average",
+      GPA == 3 ~ "From 2.5 to lower 3.2 – Fair",
+      GPA == 4 ~ "From 3.2 to lower 3.6 – Good",
+      GPA == 5 ~ "Over 3.6 – Excellent"
+    ), levels = gpa_levels),
+
+    # Create a Continuous Numeric column for Density/Error Plots
+    # We use the midpoint of each GPA band to make the plots realistic
+    GPA_Score = case_when(
+      GPA == 1 ~ 1.5,  # Midpoint of <2.0
+      GPA == 2 ~ 2.25, # Midpoint of 2.0 - 2.5
+      GPA == 3 ~ 2.85, # Midpoint of 2.5 - 3.2
+      GPA == 4 ~ 3.4,  # Midpoint of 3.2 - 3.6
+      GPA == 5 ~ 3.8   # Estimate for >3.6
+    ),
+    # ----------------------------
+
+    # Likert scale
+    across(c(Adapt_Learning_Uni, Study_Methods, SupportOf_Uni, SupportOf_Lec, 
+             Facilitie_Uni, Quality_Lecturer, TrainingCurriculum, 
+             Competitive_Class, InfuenceF_Friends),
+           ~ factor(case_when(
+             . == 1 ~ "Not at all",
+             . == 2 ~ "Little",
+             . == 3 ~ "Moderate",
+             . == 4 ~ "Quite",
+             . == 5 ~ "Very"
+           ), levels = likert_levels))
+  )
+```
+
+After recoding all the values, we need to ensure that our data is still intact.
+
+```{r}
+glimpse(df1)
+```
+
+```{r}
+colSums(is.na(df1))
+```
+
+## Exploratory Data Analysis (EDA)
+
+```{r}
+# Quick summary of all columns
+summary(df1)
+
+# Check frequency of the target variable
+df1 %>% count(GPA) %>% mutate(prop = n/sum(n))
+```
+
+## Insights
+
+### Insight 1: Students Performance Distribution
+
+::: panel-tabset
+## Visualisation
+
+```{r}
+#| echo: false
+#| warning: false
+p1 <- df1 %>%
+  count(GPA_Label) %>%
+  mutate(
+    proportion = n / sum(n),
+    se = sqrt(proportion * (1 - proportion) / sum(n)),
+    lower_ci = proportion - 1.96 * se,
+    upper_ci = proportion + 1.96 * se
+  ) %>%
+  ggplot(aes(x = GPA_Label, y = proportion, fill = GPA_Label)) +
+  geom_col(alpha = 0.8) + 
+  geom_errorbar(aes(ymin = lower_ci, ymax = upper_ci), 
+                width = 0.2,    
+                size = 0.8,     
+                color = "black") +
+  geom_text(aes(label = scales::percent(proportion, accuracy = 0.1), y = upper_ci), 
+            vjust = -0.8, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.15))) +
+  scale_fill_brewer(palette = "Blues", name = "GPA Category") +
+  labs(title = "Distribution of GPA (95% CI)",
+       subtitle = "More than 80% of students achieve 'Fair' or 'Good' Grades",
+       x = "GPA Category",
+       y = "Proportion of Students") +
+  theme_minimal() +
+  theme(legend.position = "right",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+p1
+```
+
+## Code
+
+```{r}
+#| eval: false
+p1 <- df1 %>%
+  count(GPA_Label) %>%
+  mutate(
+    proportion = n / sum(n),
+    se = sqrt(proportion * (1 - proportion) / sum(n)),
+    lower_ci = proportion - 1.96 * se,
+    upper_ci = proportion + 1.96 * se
+  ) %>%
+  ggplot(aes(x = GPA_Label, y = proportion, fill = GPA_Label)) +
+  geom_col(alpha = 0.8) + 
+  geom_errorbar(aes(ymin = lower_ci, ymax = upper_ci), 
+                width = 0.2,    
+                size = 0.8,     
+                color = "black") +
+  geom_text(aes(label = scales::percent(proportion, accuracy = 0.1), y = upper_ci), 
+            vjust = -0.8, size = 3.5) +
+  scale_y_continuous(labels = scales::percent_format(), expand = expansion(mult = c(0, 0.15))) +
+  scale_fill_brewer(palette = "Blues", name = "GPA Category") +
+  labs(title = "Distribution of GPA (95% CI)",
+       subtitle = "More than 80% of students achieve 'Fair' or 'Good' Grades",
+       x = "GPA Category",
+       y = "Proportion of Students") +
+  theme_minimal() +
+  theme(legend.position = "right",
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+p1
+```
+:::
+
+The above histogram shows GPA of 2,170 students categorised into 5 bins. The visualisation uses error bars to represent 95% confidence interval for each of the category. The distribution shows that GPA of University of Education VNU students is heavily concentrated towards middle to upper range. **The majority of students surveyed falls within Fair and Good categories, which accounts for approximately 86.7% of the total population**. In contrast, distributions are sparse for Poor and Average, which indicates that students in this cohort performs generally well. The **narrow error bar** suggests that the large **population sample provides a reliable representation** of the total population across all GPA categories.
+
+### Insight 2: Factors Affecting GPA
+
+::: panel-tabset
+## Visualisation
+
+```{r}
+#| echo: false
+#| warning: false
+p2 <- df %>%
+  select(
+    GPA,
+    Time_Studying, Time_SocicalMedia, Time_Friends,
+    Father_Edu, Mother_Edu,
+    Adapt_Learning_Uni, Study_Methods, SupportOf_Uni,
+    SupportOf_Lec, Facilitie_Uni, Quality_Lecturer,
+    TrainingCurriculum, Competitive_Class, InfuenceF_Friends
+  )
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| fig-width: 8
+#| fig-height: 8
+ggstatsplot::ggcorrmat(
+  data = p2,
+  type = "spearman",
+  colors = c("#B2182B", "white", "#2166AC"), 
+  title = "Correlation Matrix of Factors Affecting GPA",
+  subtitle = "",
+  ggcorrplot.args = list(
+    outline.color = "black", 
+    hc.order = TRUE,
+    tl.cex = 8,
+    lab_size = 2.5
+  )
+)
+```
+
+## Code
+
+```{r}
+#| eval: false
+p2 <- df %>%
+  select(
+    GPA,
+    Time_Studying, Time_SocicalMedia, Time_Friends,
+    Father_Edu, Mother_Edu,
+    Adapt_Learning_Uni, Study_Methods, SupportOf_Uni,
+    SupportOf_Lec, Facilitie_Uni, Quality_Lecturer,
+    TrainingCurriculum, Competitive_Class, InfuenceF_Friends
+  )
+```
+
+```{r}
+#| eval: false
+#| fig-width: 8
+#| fig-height: 8
+ggstatsplot::ggcorrmat(
+  data = p2,
+  type = "spearman",
+  colors = c("#B2182B", "white", "#2166AC"), 
+  title = "Correlation Matrix of Factors Affecting GPA",
+  subtitle = "",
+  ggcorrplot.args = list(
+    outline.color = "black", 
+    hc.order = TRUE,
+    tl.cex = 8,
+    lab_size = 2.5
+  )
+)
+```
+:::
+
+To identify factors that drive students' academic performance, we use Spearman correlation matrix generated using the original dataset `df` which preserves ordinal values in its integer form. Binary Variables (Gender, Policy_Stu, Minority_Stu, Poor_Stu) and Nominal Variables (Father_Occupation, Mother_Occupation) were excluded as those variables are not suitable for Spearman correlation that assumes variables are ranked (ordinal).
+
+The matrix reveals that **academic success is primarily driven by Study Methods, Adaptability to Learning Environment, and Mother's Educational Level**. It is noted that Mother's Educational Level correlates more strongly with GPA compared to Father's Educational Level. Conversely, Social Media Usage and Time Spent with Friends acts as a performance drag.
+
+### Insight 3: Impact of Parents Education
+
+::: panel-tabset
+## Visualisation
+
+```{r}
+#| echo: false
+#| fig-width: 10
+#| fig-height: 8
+#| fig-show: hide
+p3_mat <- df1 %>%
+  filter(Mother_Edu != "Other") %>%
+  mutate(
+    Mother_Edu = factor(Mother_Edu, levels = c("Primary school", "Secondary school", "High school", "College school", "University/graduate education"))
+  )
+p3_ridge_mother <- ggplot(p3_mat, 
+                         aes(x = GPA_Score, 
+                             y = Mother_Edu, 
+                             fill = factor(stat(quantile)))) +
+  stat_density_ridges(
+    geom = "density_ridges_gradient",
+    calc_ecdf = TRUE,
+    quantiles = 4,
+    quantile_lines = TRUE
+  ) +
+  scale_fill_manual(
+    name = "Quartiles",
+    values = c(
+      "1" = "#A0A0A0",  # Grey (Bottom 25%)
+      "2" = "#707070",  # Dark Grey (25%-50%)
+      "3" = "#56B4E9",  # Light Blue (50%-75% - Above Median)
+      "4" = "#0072B2"   # Dark Blue (Top 25% - Top Performers)
+    ),
+    labels = c("1st (Bottom 25%)", "2nd (Below Median)", "3rd (Above Median)", "4th (Top 25%)")
+  ) +
+  scale_x_continuous(name = "GPA Score", expand = c(0, 0)) +
+  scale_y_discrete(name = "Mother's Education", expand = expansion(add = c(0.2, 1.0))) +
+  labs(title = "GPA Distribution by Maternal Education",
+       subtitle = "") +
+  theme_ridges() +
+  theme(legend.position = "bottom")
+
+p3_ridge_mother
+```
+
+```{r}
+#| echo: false
+#| fig-width: 10
+#| fig-height: 8
+#| fig-show: hide
+p3_pat <- df1 %>%
+  filter(Father_Edu != "Other") %>%
+  mutate(
+    Father_Edu = factor(Father_Edu, levels = c("Primary school", "Secondary school", "High school", "College school", "University/graduate education"))
+  )
+p3_ridge_father <- ggplot(p3_pat, 
+                          aes(x = GPA_Score, 
+                              y = Father_Edu, 
+                              fill = factor(stat(quantile)))) +
+  stat_density_ridges(
+    geom = "density_ridges_gradient",
+    calc_ecdf = TRUE,
+    quantiles = 4,
+    quantile_lines = TRUE
+  ) +
+  scale_fill_manual(
+    name = "Quartiles",
+    values = c(
+      "1" = "#A0A0A0",  # Grey (Bottom 25%)
+      "2" = "#707070",  # Dark Grey (Below Median)
+      "3" = "#56B4E9",  # Light Blue (Above Median)
+      "4" = "#0072B2"   # Dark Blue (Top 25%)
+    ),
+    labels = c("1st (Bottom 25%)", "2nd (Below Median)", "3rd (Above Median)", "4th (Top 25%)")
+  ) +
+  scale_x_continuous(name = "GPA Score", expand = c(0, 0)) +
+  scale_y_discrete(name = "Father's Education", expand = expansion(add = c(0.2, 1.0))) +
+  labs(title = "GPA Distribution by Paternal Education",
+       subtitle = "",
+       y = "Father's Education Level") +
+  theme_ridges() +
+  theme(legend.position = "bottom")
+
+p3_ridge_father
+```
+
+```{r}
+#| echo: false
+#| fig-height: 8
+#| fig-width: 10
+#| warning: false
+combined_plot <- p3_ridge_mother / p3_ridge_father
+
+combined_plot <- (combined_plot + 
+  plot_layout(guides = "collect")) & 
+  theme(legend.position = "bottom")
+
+combined_plot + 
+  plot_annotation(
+    title = "Parents Education Impact on Academic Performance",
+    subtitle = "Comparing Maternal and Paternal Education Level at VNU Hanoi"
+  )
+```
+
+## Code
+
+```{r}
+#| echo: false
+#| fig-width: 10
+#| fig-height: 8
+#| fig-show: hide
+p3_mat <- df1 %>%
+  filter(Mother_Edu != "Other") %>%
+  mutate(
+    Mother_Edu = factor(Mother_Edu, levels = c("Primary school", "Secondary school", "High school", "College school", "University/graduate education"))
+  )
+p3_ridge_mother <- ggplot(p3_mat, 
+                         aes(x = GPA_Score, 
+                             y = Mother_Edu, 
+                             fill = factor(stat(quantile)))) +
+  stat_density_ridges(
+    geom = "density_ridges_gradient",
+    calc_ecdf = TRUE,
+    quantiles = 4,
+    quantile_lines = TRUE
+  ) +
+  scale_fill_manual(
+    name = "Quartiles",
+    values = c(
+      "1" = "#A0A0A0",  # Grey (Bottom 25%)
+      "2" = "#707070",  # Dark Grey (25%-50%)
+      "3" = "#56B4E9",  # Light Blue (50%-75% - Above Median)
+      "4" = "#0072B2"   # Dark Blue (Top 25% - Top Performers)
+    ),
+    labels = c("1st (Bottom 25%)", "2nd (Below Median)", "3rd (Above Median)", "4th (Top 25%)")
+  ) +
+  scale_x_continuous(name = "GPA Score", expand = c(0, 0)) +
+  scale_y_discrete(name = "Mother's Education", expand = expansion(add = c(0.2, 1.0))) +
+  labs(title = "GPA Distribution by Maternal Education",
+       subtitle = "") +
+  theme_ridges() +
+  theme(legend.position = "bottom")
+
+p3_ridge_mother
+```
+
+```{r}
+#| echo: false
+#| fig-width: 10
+#| fig-height: 8
+#| fig-show: hide
+p3_pat <- df1 %>%
+  filter(Father_Edu != "Other") %>%
+  mutate(
+    Father_Edu = factor(Father_Edu, levels = c("Primary school", "Secondary school", "High school", "College school", "University/graduate education"))
+  )
+p3_ridge_father <- ggplot(p3_pat, 
+                          aes(x = GPA_Score, 
+                              y = Father_Edu, 
+                              fill = factor(stat(quantile)))) +
+  stat_density_ridges(
+    geom = "density_ridges_gradient",
+    calc_ecdf = TRUE,
+    quantiles = 4,
+    quantile_lines = TRUE
+  ) +
+  scale_fill_manual(
+    name = "Quartiles",
+    values = c(
+      "1" = "#A0A0A0",  # Grey (Bottom 25%)
+      "2" = "#707070",  # Dark Grey (Below Median)
+      "3" = "#56B4E9",  # Light Blue (Above Median)
+      "4" = "#0072B2"   # Dark Blue (Top 25%)
+    ),
+    labels = c("1st (Bottom 25%)", "2nd (Below Median)", "3rd (Above Median)", "4th (Top 25%)")
+  ) +
+  scale_x_continuous(name = "GPA Score", expand = c(0, 0)) +
+  scale_y_discrete(name = "Father's Education", expand = expansion(add = c(0.2, 1.0))) +
+  labs(title = "GPA Distribution by Paternal Education",
+       subtitle = "",
+       y = "Father's Education Level") +
+  theme_ridges() +
+  theme(legend.position = "bottom")
+
+p3_ridge_father
+```
+
+```{r}
+#| eval: false
+#| fig-height: 8
+#| fig-width: 10
+#| warning: false
+combined_plot <- p3_ridge_mother / p3_ridge_father
+
+combined_plot <- (combined_plot + 
+  plot_layout(guides = "collect")) & 
+  theme(legend.position = "bottom")
+
+combined_plot + 
+  plot_annotation(
+    title = "Parents Education Impact on Academic Performance",
+    subtitle = "Comparing Maternal and Paternal Education Level at VNU Hanoi"
+  )
+```
+:::
+
+Correlation matrix in the previous section has uncovered that parental education level are significant predictors of students' academic achievement. A consistent **bimodal distribution** can be seen for both maternal and paternal education level, with performance peaks at around **GPA of 2.8 and 3.5**. As parents education advances to university/graudate level, GPA 3.5 peak increase is noticeable, and the proportion of students in higher quartiles expand significantly. This result is corroborated by the earlier correlation matrix, whereby maternal (r = 0.12) and paternal (r = 0.08) are positively related to GPA.
+
+### Insight 4: Student Satisfaction
+
+::: panel-tabset
+## Visualisation
+
+```{r}
+#| echo: false
+#| fig-height: 6
+#| fig-width: 9
+p4 <- df1 %>%
+  mutate(ID = row_number()) %>%
+  select(ID, SupportOf_Uni, SupportOf_Lec, Facilitie_Uni, Quality_Lecturer, TrainingCurriculum) %>%
+  pivot_longer(cols = -ID, names_to = "Category", values_to = "Response") %>%
+  count(Category, Response) %>%
+  group_by(Category) %>%
+  mutate(percentage = n / sum(n) * 100) %>%
+  ungroup() %>%
+  mutate(
+    plot_percentage = case_when(
+      Response %in% c("Not at all", "Little") ~ -percentage,
+      Response == "Moderate" ~ -percentage/2, 
+      TRUE ~ percentage
+    ),
+    Category_Label = case_when(
+      Category == "Quality_Lecturer" ~ "Quality of Lecturers",
+      Category == "SupportOf_Lec" ~ "Lecturer Support",
+      Category == "TrainingCurriculum" ~ "Curriculum Suitability",
+      Category == "SupportOf_Uni" ~ "University Support",
+      Category == "Facilitie_Uni" ~ "University Facilities"
+    )
+  )
+
+p4_diverging <- ggplot(p4, aes(x = reorder(Category_Label, plot_percentage), y = plot_percentage, fill = Response)) +
+  geom_col() +
+  coord_flip() + 
+  geom_hline(yintercept = 0, color = "black", alpha = 0.5) +
+  scale_fill_manual(
+    values = c(
+      "Not at all" = "#B2182B", 
+      "Little"     = "#D6604D", 
+      "Moderate"   = "#F7F7F7", 
+      "Quite"      = "#4393C3", 
+      "Very"       = "#2166AC"
+    ),
+    breaks = c("Not at all", "Little", "Moderate", "Quite", "Very") 
+  ) +
+  scale_y_continuous(labels = function(x) paste0(abs(x), "%")) +
+  labs(title = "Student Satisfaction",
+       subtitle = "Students rate Lecturers highly, but show dissatisfaction with Facilities.",
+       x = "",
+       y = "Percentage of Students",
+       fill = "Rating") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p4_diverging
+```
+
+## Code
+
+```{r}
+#| eval: false
+#| fig-height: 6
+#| fig-width: 9
+p4 <- df1 %>%
+  mutate(ID = row_number()) %>%
+  select(ID, SupportOf_Uni, SupportOf_Lec, Facilitie_Uni, Quality_Lecturer, TrainingCurriculum) %>%
+  pivot_longer(cols = -ID, names_to = "Category", values_to = "Response") %>%
+  count(Category, Response) %>%
+  group_by(Category) %>%
+  mutate(percentage = n / sum(n) * 100) %>%
+  ungroup() %>%
+  mutate(
+    plot_percentage = case_when(
+      Response %in% c("Not at all", "Little") ~ -percentage,
+      Response == "Moderate" ~ -percentage/2, 
+      TRUE ~ percentage
+    ),
+    Category_Label = case_when(
+      Category == "Quality_Lecturer" ~ "Quality of Lecturers",
+      Category == "SupportOf_Lec" ~ "Lecturer Support",
+      Category == "TrainingCurriculum" ~ "Curriculum Suitability",
+      Category == "SupportOf_Uni" ~ "University Support",
+      Category == "Facilitie_Uni" ~ "University Facilities"
+    )
+  )
+
+p4_diverging <- ggplot(p4, aes(x = reorder(Category_Label, plot_percentage), y = plot_percentage, fill = Response)) +
+  geom_col() +
+  coord_flip() + 
+  geom_hline(yintercept = 0, color = "black", alpha = 0.5) +
+  scale_fill_manual(
+    values = c(
+      "Not at all" = "#B2182B", 
+      "Little"     = "#D6604D", 
+      "Moderate"   = "#F7F7F7", 
+      "Quite"      = "#4393C3", 
+      "Very"       = "#2166AC"
+    ),
+    breaks = c("Not at all", "Little", "Moderate", "Quite", "Very") 
+  ) +
+  scale_y_continuous(labels = function(x) paste0(abs(x), "%")) +
+  labs(title = "Student Satisfaction",
+       subtitle = "Students rate Lecturers highly, but show dissatisfaction with Facilities.",
+       x = "",
+       y = "Percentage of Students",
+       fill = "Rating") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p4_diverging
+```
+:::
+
+Students of University of Education at VNU are generally satisfied with their lecturers, The above diverging bar chart shows that students are **satisfied** with the **quality of their lecturers** as well as the **support extended by their lecturers**. However, students are most **dissatisfied with University Facilities and University Support.** This shows that while faculty members of VNU excel in terms of teaching quality and student engagement, there remains a room for improvement on infrastructures and institutional responsiveness.
+
+### Insight 5: Gender Performance Gap
+
+::: panel-tabset
+## Visualisation
+
+```{r}
+#| echo: false
+ggplot(df1, aes(x = Gender, y = GPA_Score, fill = Gender)) +
+  geom_violin(alpha = 0.5) +
+  geom_boxplot(width = 0.1, color = "black", outlier.shape = NA) +
+  scale_fill_manual(values = c("Male" = "#0072B2", "Female" = "#D55E00")) +
+  labs(title = "Academic Performance by Gender",
+       subtitle = "Female students show a higher concentration of top-tier grades compared to males.",
+       x = "Gender", y = "GPA Score") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+
+## Code
+
+```{r}
+#| eval: false
+ggplot(df1, aes(x = Gender, y = GPA_Score, fill = Gender)) +
+  geom_violin(alpha = 0.5) +
+  geom_boxplot(width = 0.1, color = "black", outlier.shape = NA) +
+  scale_fill_manual(values = c("Male" = "#0072B2", "Female" = "#D55E00")) +
+  labs(title = "Academic Performance by Gender",
+       subtitle = "Female students show a higher concentration of top-tier grades compared to males.",
+       x = "Gender", y = "GPA Score") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+:::
+
+The above violin plot shows that while Male and Female students median GPA are identical, they differ in distribution density. The Female distribution is wider in the upper range, indicating a **higher concentration of Female students that falls under Good and Excellent bands**. In contrast, the Male violin plot is more elongated and tapers less toward the lower end, which indicates that there are less Male students than Female students that managed to achieve Good and Excellent GPA.
