@@ -1,78 +1,27 @@
 ---
-title: "Take-home_Ex02 - Modeltime"
+title: "Take-home_Ex02 - Fable"
 date: "March 14, 2026"
 date-modified: "`r Sys.Date()`"
 ---
 
-# Take-home Exercise 2: modeltime
-
-## Overview
-
-Take-home exercise 2 is a part of preliminary project work of the final group project that we have chosen the topic on, which is to analyse and forecast Singapore Customer Price Index (CPI).
-
-Consumer Price Index (CPI) is a measure of the average change over time in the price paid by households for a fixed basket of goods and services, representing typical consumption patterns in a specific country.
-
-Singapore CPI is compiled on a monthly basis and the categories covered are:
-
--   Food, Clothing and Footwear
-
--   Housing & Utilities
-
--   Household Durables & Services
-
--   Health
-
--   Transport
-
--   Information & Communication
-
--   Recreation
-
--   Sport & Culture
-
--   Education
-
--   Miscellaneous Goods & Services.
-
-Analysis and outlook on CPI will be useful for multiple stakeholders such as households, businesses, and policymakers to be able to plan ahead.
-
-
-## Project Objective
-The data source that we will be using for this project comes from the **CEIC database**, spanning from January 2020 to January 2026 (Base Year: 2024 = 100). The objective of my assignment is to build a **Prototype on Forecasting** part. The dataset and manipulations performed here is for the purpose of my exploration, in which will be further aligned with the rest of team members before combining everything into our final webpage.
+# Take-home Exercise 2: fable
 
 ## Data Preparation
 
 ### Import Packages
+Similar to **modeltime** pipeline, we need to load the necessary packages using `pacman::p_load()`. The key difference is tidymodels packages are replaced with tidyverts packages (`tsibble`, `fable`, `fable.prophet`, `fabletools`, and `feasts`).
 ```{r}
-pacman::p_load(readxl, tidyverse, timetk, modeltime, tidymodels, lubridate, plotly)
+pacman::p_load(readxl, tidyverse, tsibble, fable, fable.prophet, fabletools, feasts, lubridate)
 ```
 
 ### Import Data
-The dataset used for this project is Singapore CPI from January 2020 to January 2026.
 ```{r}
 cpi_data_raw <- read_excel("data/SG_CPI_012020_012026_Use.xlsx")
 ```
 
-### Overview of the Dataset
-
-#### Data Structure
-```{r}
-str(cpi_data_raw)
-```
-The above dataset contains 73 rows (73 months of data) and 65 columns (CPI categories).
-
-#### Missingness Check
-```{r}
-sum(is.na(cpi_data_raw))
-```
-The above dataset does not contain null value.
-
 
 ## Data Wrangling
-
-### Define Hierarchical Level and Assign Parent to Child (Leaf Nodes)
-As the CPI data has levels to it and the structure of the column names does not allow us to automatically separate and identify the levels by delimiter, hence we decided to define the hiearchy manually.
-
+### Define Hierarchy Map
 ```{r}
 hier_map <- tribble(
   ~Category,                                                                    ~Level, ~Parent,
@@ -171,13 +120,7 @@ hier_map <- tribble(
 )
 ```
 
-```{r}
-hier_map
-```
-
-### Dataset Reshaping and Date Normalisation
-The raw CPI dataset is structured in **wide** format, where each CPI is in a separate column. Since this structure is incompatible with time series modelling, we are converting the dataset to **long** format. This is done using the `pivot_longer()`, consolidating all 64 CPI category columns into two columns: **Category** and **CPI_Value**. This step is required for us to be able to use `modeltime` and `timetk` for nested forecasting. **Dates are normalised** to month-start using `floor_date()`, and `pad_time()` makes any implicit time gaps explicit.
-
+### Reshape Data to Long
 ```{r}
 cpi_data_long <- cpi_data_raw %>%
   pivot_longer(
@@ -186,133 +129,110 @@ cpi_data_long <- cpi_data_raw %>%
     values_to = "CPI_Value"
   ) %>%
   mutate(Date = floor_date(as.Date(Date), "month")) %>%
-  group_by(Category) %>%
-  arrange(Date) %>%
-  pad_by_time(.date_var = Date, .by = "month")
+  left_join(hier_map, by = "Category")
 ```
 
-### Prepare Data for Nested Forecasting
-The hierarchy map that we created earlier is joined to the long data for us to be able to identify the level and parent of each of the category **Forecasting will only be performed on Leaf Nodes**, which is the most granular level categories with no children.
-
-For this data set, **leaf nodes level** varies as for **Food** category, it expands until **Level 4**. Meanwhile, for **non-food** category, the most granular level falls under **Level 3**.
-
-Each leaf series is then extended by 12 months, nested into list-column structure, and split into train-test sets (last 12 months reserved as hold-out period).
-
+### Identify Leaf Nodes
 ```{r}
-cpi_data_long <- cpi_data_long %>%
-  left_join(hier_map, by = "Category")
-
-# Identify leaf nodes (categories that never appear as Parent in hier_map. Can't just pick to FC lowest level because only have Food related CPI, the rest are at Level 3.)
 leaf_categories <- hier_map %>%
   filter(!Category %in% na.omit(hier_map$Parent)) %>%
   pull(Category)
-
-nested_data_tbl <- cpi_data_long %>%
-  filter(Category %in% leaf_categories) %>%
-  extend_timeseries(
-    .id_var        = Category,
-    .date_var      = Date,
-    .length_future = 12
-  ) %>%
-  nest_timeseries(
-    .id_var        = Category,
-    .length_future = 12
-  ) %>%
-  split_nested_timeseries(
-    .length_test = 12
-  )   # Split Train-Test
 ```
 
+### Filter to Leaf Nodes
+While **modeltime** uses `pad_by_time()` to fill time gaps, **fable uses** `fill_gaps()` on a tsibble object. 
+
+Another difference is that an additional step of defining `mutate(Date = yearmonth(Date))` is needed to convert date column into **tsibble** native monthly index type to explicitly tell **tsibble** that the data is monthly. 
 ```{r}
-nested_data_tbl
+cpi_tsibble <- cpi_data_raw %>%
+  pivot_longer(
+    cols      = -Date,
+    names_to  = "Category",
+    values_to = "CPI_Value"
+  ) %>%
+  mutate(Date = floor_date(as.Date(Date), "month")) %>%
+  left_join(hier_map, by = "Category") %>%
+  filter(Category %in% leaf_categories) %>%
+  select(Date, Category, CPI_Value) %>%
+  mutate(Date = yearmonth(Date)) %>%   # convert AFTER floor_date, so tsibble knows it's monthly
+  as_tsibble(key = Category, index = Date) %>%
+  fill_gaps() %>%
+  group_by_key() %>%
+  mutate(CPI_Value = zoo::na.approx(CPI_Value, na.rm = FALSE)) %>%
+  ungroup()
+```
+
+### Missingness Check
+```{r}
+cpi_tsibble %>% filter(is.na(CPI_Value))
 ```
 
 ## Time Series Forecasting
+### Train-test Split
+Similar to **modeltime**, the last 12 months are reserved as a hold-out period (test set). The key difference is that instead of using `split_nested_timeseries()`, `filter()` is used. Since `Date` is a `yearmonth` object, we can do direct integer subtraction instead of using lubridate `%m-%`, which is incompatible with `yearmonth`.
 
-### Define Models
 ```{r}
-model_ets <- exp_smoothing() %>% set_engine("ets")
-model_arima <- arima_reg() %>% set_engine("auto_arima")
-model_boost <- arima_boost() %>% set_engine("auto_arima_xgboost")
-model_prophet <- prophet_reg() %>% set_engine("prophet")
+cutoff_date <- max(cpi_tsibble$Date) - 12
+
+train_tbl <- cpi_tsibble %>% filter(Date <= cutoff_date)
+test_tbl <- cpi_tsibble %>% filter(Date > cutoff_date)
 ```
 
-### Build Model Workflow
-Four models workflows are defined by pairin each model spec with a preprocessing recipe. The recipe defines `CPI_Value ~ Date` as a formula, instructing each model to learn from the date variable alone. 
+### Fit models on Train Set
+While the **modeltime** pipeline requires us to explicitly define workflow pairings for each model with preprocessing recipe, **fable's** `model()` function is more straight forward. 
 
-Most models (ETS, ARIMA, Prophet) use minimal recipe, except ARIMA-XGBoost, which requires explicit feature engineering to explode the date into month, quarter, year using `step_timeseries_signature()`. However, since `step_timeseries_signature()` function also produces irrelevant features such as hour, minute, and second, hence those features are dropped using `step_rm()`. Categorical features are one-hot encoded with `step_dummy()` as it is required for XGBoost model. 
+All three models (ETS, ARIMA, Prophet) are fitted across all 51 leaf categories in a single cell. This is possible because tsibble's `key` variable is capable to handle multi-series structure, eliminating the need for `nest_timeseries()` and `modeltime_nested_fit()`. 
+
+However, **ARIMA-XGBoost is not available in fable**.
 
 ```{r}
-wf_ets <- workflow() %>% 
-  add_model(model_ets) %>% 
-  add_recipe(recipe(CPI_Value ~ Date, data = extract_nested_train_split(nested_data_tbl)))
-wf_arima <- workflow() %>% 
-  add_model(model_arima) %>% 
-  add_recipe(recipe(CPI_Value ~ Date, data = extract_nested_train_split(nested_data_tbl)))
-wf_prophet <- workflow() %>% 
-  add_model(model_prophet) %>% 
-  add_recipe(recipe(CPI_Value ~ Date, data = extract_nested_train_split(nested_data_tbl)))
-wf_boost <- workflow() %>% 
-  add_model(model_boost) %>% 
-  add_recipe(
-    recipe(CPI_Value ~ Date, data = extract_nested_train_split(nested_data_tbl)) %>%
-      step_timeseries_signature(Date) %>%
-      step_rm(matches("(xts$)|(iso$)|(hour)|(minute)|(second)|(am.pm)")) %>%
-      step_dummy(all_nominal_predictors(), one_hot = TRUE)
+fit_train <- train_tbl %>%
+  model(
+    ets = ETS(CPI_Value),
+    arima = ARIMA(CPI_Value),
+    prophet = prophet(CPI_Value)
   )
 ```
 
-### Fit the Models
-All four workflows are fitted into all CPI categories that falls under leaf nodes at once using `modeltime_nested_fit()`.
+
+### Select the Best Model
+Simliar to `modeltime_nested_select_best()`, the best model per category is selected by minimising RMSE on the test set. 
+
+However, **fable** does not have built-in function that is similar to `modeltime_nested_select_best()`. Hence, this is done manually by computing accuracy metrics with `accuracy()`, using `slice_min(RMSE)` and `semi_join()` to identify and retain the best model for each category.
 
 ```{r}
-nested_modeltime_tbl <- modeltime_nested_fit(
-  nested_data = nested_data_tbl,
-  wf_ets,
-  wf_arima,
-  wf_boost,
-  wf_prophet,
-  control = control_nested_fit(allow_par = FALSE, verbose = TRUE)
-)
+acc_tbl <- fit_train %>%
+  forecast(h = 12) %>%
+  accuracy(cpi_tsibble)
+
+best_model <- acc_tbl %>%
+  group_by(Category) %>%
+  slice_min(RMSE, n = 1) %>%
+  ungroup() %>%
+  select(Category, .model)
 ```
 
-### Select Best Model
-The best model is selected by **minimising RMSE** against the test set. 
-
+### Refit on Full Dataset
 ```{r}
-best_nested_models <- nested_modeltime_tbl %>%
-  modeltime_nested_select_best(
-    metric = "rmse",
-    minimize = TRUE,
-    filter_test_forecasts = TRUE)
-```
-
-### Generate Forecast for Leaf Nodes Only
-Best models are refitted on the full 73-month-worth of data set before generating 12-month forecast with 95% Confidence Interval for each leaf node.
-
-```{r}
-refitted_nested_models <- best_nested_models %>%
-  modeltime_nested_refit(
-    control = control_nested_refit(verbose = TRUE)
+fit_full <- cpi_tsibble %>%
+  model(
+    ets = ETS(CPI_Value),
+    arima = ARIMA(CPI_Value),
+    prophet = prophet(CPI_Value)
   )
 ```
 
+### Generate 12-month Forecast
 ```{r}
-leaf_fc <- refitted_nested_models %>%
-  modeltime_nested_forecast(
-    h             = 12,
-    conf_interval = 0.95,
-    control       = control_nested_forecast(verbose = TRUE)
-  ) %>%
-  filter(.key == "prediction") %>%
-  select(Date = .index, Category, .value)
+leaf_fc <- fit_full %>%
+  forecast(h = 12) %>%
+  semi_join(best_model, by = c("Category", ".model")) %>%
+  as_tibble() %>%
+  mutate(Date = as.Date(Date)) %>%
+  select(Date, Category, .value = .mean)
 ```
 
-### Define Weightage
-Basket weights are defined manually based on the latest January 2026 CPI Press Release from Singapore Department of Statistics.
-
-![](images/CPI_weight_table.png)
-
+### Define Weights
 ```{r}
 weights_tbl <- tribble(
   ~Category,                                                                    ~Weight,
@@ -376,62 +296,58 @@ weights_tbl <- tribble(
 )
 ```
 
-### Aggregate Forecast 
-Leaf nodes forecast are reconciled bottom-up through the hierarchy using weighted averages, producing consistent forecasts for all levels up to the overall CPI.
+### Aggregate Forecast
 ```{r}
 aggregate_bottom_up <- function(forecasts, hier_map, weights_tbl) {
-  max_level <- max(hier_map$Level)
-  # Start with leaf forecasts, attach their weights
   all_levels <- forecasts %>%
     left_join(weights_tbl, by = "Category")
-  # Aggregate level by level, from deepest up to level 2
+
   levels_to_agg <- hier_map %>%
     filter(!is.na(Parent)) %>%
     arrange(desc(Level)) %>%
     pull(Level) %>%
     unique()
+
   for (lvl in levels_to_agg) {
     child_nodes <- hier_map %>%
       filter(Level == lvl) %>%
       select(Category, Parent)
+
     parent_fc <- all_levels %>%
       inner_join(child_nodes, by = "Category") %>%
       group_by(Date, Category = Parent) %>%
       summarise(
-        .value = sum(.value * Weight) / sum(Weight),  # weighted average
-        Weight = sum(Weight),                          # bubble weight up for next level
+        .value = sum(.value * Weight) / sum(Weight),
+        Weight = sum(Weight),
         .groups = "drop"
       )
+
     all_levels <- bind_rows(all_levels, parent_fc) %>%
       distinct(Date, Category, .keep_all = TRUE)
   }
   return(all_levels)
 }
-# Call with weights
+
 reconciled_forecasts <- aggregate_bottom_up(leaf_fc, hier_map, weights_tbl)
 ```
 
 ### Visualisation of Actual and Forecasted CPI
 
 #### Plot by CPI Level
-The following code chunk generates faceted chart for all CPI categories by its hierarchy level. While the visualisation is fairly clear for Level 1, 2, and 4, it is not the case for Level 3 as it contains too many categories.
-
 ```{r}
 actuals <- cpi_data_long %>%
   select(Date, Category, CPI_Value) %>%
   mutate(.key = "Actual")
 
-forecasts <- reconciled_forecasts %>%
+forecasts_plot <- reconciled_forecasts %>%
   select(Date, Category, CPI_Value = .value) %>%
   mutate(.key = "Forecast")
-```
 
-
-```{r}
+# Plot by hierarchy level
 plot_by_level <- function(lvl) {
   cats <- hier_map %>% filter(Level == lvl) %>% pull(Category)
-  
-  bind_rows(actuals, forecasts) %>%
+
+  bind_rows(actuals, forecasts_plot) %>%
     filter(Category %in% cats) %>%
     ggplot(aes(x = Date, y = CPI_Value, color = .key, linetype = .key)) +
     geom_line(linewidth = 0.7) +
@@ -449,23 +365,19 @@ plot_by_level <- function(lvl) {
     )
 }
 
-# Call separately per level
 plot_by_level(1)
 plot_by_level(2)
 plot_by_level(3)
 plot_by_level(4)
 ```
 
-
 #### Plot by Parent Node
-To address the visibility problem for Level 3 charts, I experimented by grouping the plot by Parent Node instead (e.g. Food, Clothing and Footwear, Housing & Utilities, etc.) to make all categories charts readable.
-
 ```{r}
 plot_by_parent <- function(parent_cat) {
   cats <- hier_map %>% filter(Parent == parent_cat) %>% pull(Category)
   n    <- length(cats)
-  
-  bind_rows(actuals, forecasts) %>%
+
+  bind_rows(actuals, forecasts_plot) %>%
     filter(Category %in% cats) %>%
     ggplot(aes(x = Date, y = CPI_Value, color = .key, linetype = .key)) +
     geom_line(linewidth = 0.7) +
@@ -486,39 +398,29 @@ plot_by_parent <- function(parent_cat) {
     )
 }
 
-# Get all Level 2 parents
-level2_parents <- hier_map %>%
-  filter(Level == 2) %>%
-  pull(Category)
-
-# Plot one chart per Level 2 parent
+level2_parents <- hier_map %>% filter(Level == 2) %>% pull(Category)
 walk(level2_parents, ~ print(plot_by_parent(.x)))
 ```
-
-#### Next Steps
-While the above static plots are built for exploratory purposes, we plan to enhance the visualisation by allowing users to select one hierarchy level at a time, which they would be able to drill down into specific categories using a second drop down menu just beside the hierarchy level. This would make the forecast more readable. Besides, we also plan to include 90% and 99% Confidence Interval on top of the default 95% Confidence Interval that has been built.
-
-![](images/ForecastSketch.png)
-
 ## Saving Model Metrics for Comparison
-On top of that, since we will be experimenting between different models (`modeltime` and `fable`), hence accuracy and time metrics for **modeltime** will be saved as RDS file to be compared with fable.
 ```{r}
-# Save modeltime accuracy and time
-accuracy_modeltime <- nested_modeltime_tbl %>%
-  modeltime_nested_select_best(metric = "rmse", minimize = TRUE) %>%
-  extract_nested_test_accuracy() %>%
-  select(Category, .model_desc, RMSE = rmse, MAE = mae, MAPE = mape) %>%
-  mutate(framework = "modeltime")
+# Save fable accuracy and time
+accuracy_fable <- fit_train %>%
+  forecast(h = 12) %>%
+  accuracy(cpi_tsibble) %>%
+  semi_join(best_model, by = c("Category", ".model")) %>%
+  select(Category, .model, RMSE, MAE, MAPE) %>%
+  mutate(framework = "fable")
 
-time_modeltime <- system.time({
-  modeltime_nested_fit(
-    nested_data = nested_data_tbl,
-    wf_ets, wf_arima, wf_boost, wf_prophet,
-    control = control_nested_fit(allow_par = FALSE, verbose = FALSE)
-  )
+time_fable <- system.time({
+  train_tbl %>%
+    model(
+      ets     = ETS(CPI_Value),
+      arima   = ARIMA(CPI_Value),
+      prophet = prophet(CPI_Value)
+    )
 })
 
-saveRDS(accuracy_modeltime, "data/accuracy_modeltime.rds")
-saveRDS(time_modeltime, "data/time_modeltime.rds")
+saveRDS(accuracy_fable, "data/accuracy_fable.rds")
+saveRDS(time_fable,     "data/time_fable.rds")
 ```
 

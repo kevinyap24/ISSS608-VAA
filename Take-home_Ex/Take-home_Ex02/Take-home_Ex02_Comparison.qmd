@@ -1,0 +1,102 @@
+---
+title: "Take-Home_Ex02 - Comparison"
+date: "March 15, 2026"
+date-modified: "`r Sys.Date()`"
+---
+
+# Model Comparison
+
+This section provides a quantitative comparison between two forecasting frameworks that we manged to explore: `modeltime` and `fable`. The metrics compared are **accuracy** based on RMSE fitted on train dataset and **computation time**.
+
+## Load Packages
+```{r}
+pacman::p_load(tidyverse)
+```
+
+## Load Model Metrics
+```{r}
+accuracy_modeltime <- readRDS("data/accuracy_modeltime.rds")
+accuracy_fable <- readRDS("data/accuracy_fable.rds")
+time_modeltime <- readRDS("data/time_modeltime.rds")
+time_fable <- readRDS("data/time_fable.rds")
+```
+
+## Deduplicate Lowest RMSE
+```{r}
+# Deduplicate — keep lowest RMSE per category per framework
+accuracy_modeltime_best <- accuracy_modeltime %>%
+  group_by(Category) %>%
+  slice_min(RMSE, n = 1, with_ties = FALSE) %>%
+  ungroup()
+
+accuracy_fable_best <- accuracy_fable %>%
+  group_by(Category) %>%
+  slice_min(RMSE, n = 1, with_ties = FALSE) %>%
+  ungroup()
+```
+
+
+## Overall Accuracy Summary
+The table below shows the summary of mean RMSE, MAE, and MAPE across all 51 leaf nodes for both frameworks (modeltime and fable). **modeltime** achieves a slightly lower error across all three metrics.
+
+```{r}
+overall_accuracy <- bind_rows(accuracy_modeltime_best, accuracy_fable_best) %>%
+  group_by(framework) %>%
+  summarise(
+    mean_RMSE = round(mean(RMSE, na.rm = TRUE), 4),
+    mean_MAE = round(mean(MAE,  na.rm = TRUE), 4),
+    mean_MAPE = round(mean(MAPE, na.rm = TRUE), 4)
+  )
+
+overall_accuracy
+```
+
+## Category RMSE Comparison
+To understand where each framework performs better on each of the leaf nodes, we created a summary table of RMSE breakdowns for each of the individual CPI category. The `better` column tells us which framework has the lowest RMSE for each category. Out of 51, modeltime achieves a lower RMSE in 22 categories, fable in 7 categories, and the same RMSE for the remaining 22 categories. This is consistent with the overall accuracy summary where modeltime achieves lower mean RMSE.
+
+```{r}
+rmse_cat <- bind_rows(accuracy_modeltime_best, accuracy_fable_best) %>%
+  select(Category, framework, RMSE) %>%
+  pivot_wider(names_from = framework, values_from = RMSE) %>%
+  mutate(
+    modeltime = as.numeric(modeltime),
+    fable = as.numeric(fable),
+    better = case_when(
+      is.na(modeltime) ~ "fable",
+      is.na(fable)  ~ "modeltime",
+      modeltime == fable ~"tie",
+      modeltime < fable ~ "modeltime",
+      TRUE ~ "fable"
+    )
+  )
+
+rmse_cat
+```
+
+## Best Model Frequency
+The table below shows how frequently each model in **modeltime** was selected as the best model across 51 leaf nodes. Prophet dominates 19 selections, followed by ARIMA (14), and ETS (17). ARIMA-XGBoost was only selected once, which suggests that the slight accuracy advantage of modeltime mentioned above is not material. 
+```{r}
+selected_model_freq <- accuracy_modeltime_best %>%
+  count(.model_desc, sort = TRUE)
+
+selected_model_freq
+```
+
+## Computation Time Comparison
+The table below compares time taken to fit all models across 51 leaf nodes. fable completes in approximately half of the time needed for modeltime, which makes it more efficient. Given that ARIMA-XGBoost was selected as the best model in only 1 out of 51 categories, the additional computation cost of modeltime is hard to justify for this dataset.
+
+```{r}
+tibble(
+  framework   = c("modeltime", "fable"),
+  elapsed_sec = c(time_modeltime["elapsed"], time_fable["elapsed"])
+)
+```
+
+## Conclusion
+Based on the above comparisons of different metrics performed on both **modeltime** and **fable** forecasting frameworks, **modeltime** managed to show a consistent accuracy advantage by having lower mean RMSE (1.2895 vs 1.3607) and outperforms fable in 22 categories. 
+
+However, this slight advantage comes at a high computational cost of modeltime taking approximately twice as long to run (approx. 110 seconds vs 55 seconds). More importantly, ARIMA-XGBoost was selected as the best model in only 1 out of 51 categories, which is difficult for us to justify to use modeltime.
+
+Given the above findings, the ~5% accuracy difference is marginal in comparison to the computational cost that modeltime takes. However, this should not rule out in the future case of the project needing a more complex ML-based model, we would need to revisit the approach which will surface out the potential use case for using modeltime.
+
+**Current Winner: `fable`**
